@@ -42,10 +42,13 @@ namespace JHBlazorADTools.Services
                 DateTime? lockoutTime = null;
                 if (entry.Attributes["lockoutTime"]?.Count > 0)
                 {
-                    // AD lockoutTime은 1601년 1월 1일부터의 FileTime (100ns 단위)
-                    long fileTime = (long)entry.Attributes["lockoutTime"][0];
-                    if (fileTime > 0)
+                    // lockoutTime을 string 으로 꺼냄
+                    string lockoutTimeStr = entry.Attributes["lockoutTime"][0]?.ToString();
+
+                    // 문자열을 long으로 변환 시도
+                    if (long.TryParse(lockoutTimeStr, out long fileTime) && fileTime > 0)
                     {
+                        // FileTime(1601년 1월 1일부터 경과한 100ns 단위)을 DateTime으로 변환
                         lockoutTime = DateTime.FromFileTimeUtc(fileTime);
                     }
                 }
@@ -119,6 +122,98 @@ namespace JHBlazorADTools.Services
             // connection.SessionOptions.VerifyServerCertificate += (conn, cert) => true; // 필요 시 검증 로직
 
             return connection;
+        }
+
+        public List<AdUser> GetAllUsers()
+        {
+            var allUsers = new List<AdUser>();
+
+            using var connection = CreateConnection();
+            connection.Bind();
+
+            // 잠금 여부 상관없이 모든 user 검색
+            var request = new SearchRequest(
+                _config.LdapBaseDn,
+                "(&(objectCategory=person)(objectClass=user))",
+                SearchScope.Subtree,
+                new[] { "name", "samAccountName", "lockoutTime" }
+            );
+
+            var response = (SearchResponse)connection.SendRequest(request);
+
+            foreach (SearchResultEntry entry in response.Entries)
+            {
+                var name = entry.Attributes["name"]?[0]?.ToString() ?? string.Empty;
+                var sam = entry.Attributes["samAccountName"]?[0]?.ToString() ?? string.Empty;
+
+                DateTime? lockoutTime = null;
+                if (entry.Attributes["lockoutTime"]?.Count > 0)
+                {
+                    // 1) lockoutTime을 문자열로 가져오기
+                    string lockoutTimeStr = entry.Attributes["lockoutTime"][0]?.ToString();
+
+                    // 2) long으로 파싱
+                    if (long.TryParse(lockoutTimeStr, out long fileTime) && fileTime > 0)
+                    {
+                        // 3) 0보다 큰 값이면 잠금 시간으로 해석
+                        lockoutTime = DateTime.FromFileTimeUtc(fileTime);
+                    }
+                }
+
+                allUsers.Add(new AdUser
+                {
+                    Name = name,
+                    SamAccountName = sam,
+                    LockoutTime = lockoutTime
+                });
+            }
+
+            return allUsers;
+        }
+
+        public bool LockUser(string samAccountName)
+        {
+            if (string.IsNullOrWhiteSpace(samAccountName))
+                return false;
+
+            using var connection = CreateConnection(); // LdapConnection 생성 후 Bind()
+            connection.Bind();
+
+            // 1) 사용자 DN 검색
+            var searchRequest = new SearchRequest(
+                _config.LdapBaseDn,
+                $"(&(objectCategory=person)(objectClass=user)(sAMAccountName={samAccountName}))",
+                SearchScope.Subtree,
+                new[] { "distinguishedName" }
+            );
+
+            var searchResponse = (SearchResponse)connection.SendRequest(searchRequest);
+            if (searchResponse.Entries.Count == 0)
+                return false;
+
+            var userDn = searchResponse.Entries[0].DistinguishedName;
+
+            // 2) lockoutTime 값으로 쓸 FileTime(byte[]) 생성
+            long nowFileTime = DateTime.UtcNow.ToFileTimeUtc();
+            var fileTimeBytes = BitConverter.GetBytes(nowFileTime);
+            // 필요 시 엔디안 확인 (대부분 이대로 OK)
+
+            // 3) DirectoryAttributeModification 객체 생성
+            var mod = new DirectoryAttributeModification
+            {
+                Name = "lockoutTime",
+                Operation = DirectoryAttributeOperation.Replace
+            };
+            // 값 추가 (여러 값 가능하지만, 여기선 1개)
+            mod.Add(fileTimeBytes);
+
+            // 4) ModifyRequest에 'mod'를 배열로 담아 전달
+            var modifyRequest = new ModifyRequest(userDn, mod);
+
+            // 5) 요청 실행
+            var modifyResponse = (ModifyResponse)connection.SendRequest(modifyRequest);
+
+            return modifyResponse.ResultCode == ResultCode.Success;
         }
     }
 }

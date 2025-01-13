@@ -3,13 +3,19 @@
 @using JHBlazorADTools.Models
 @inject AdService AdService
 
-<h3>AD 잠금 계정 관리</h3>
+<h2>AD 사용자 관리</h2>
 
-<button class="btn btn-primary mb-3" @onclick="LoadLockedOutUsers">잠금된 사용자 조회</button>
+<hr />
+
+<!-- [1] "잠금된 사용자" 섹션 -->
+<h3>잠금된 사용자 조회/해제</h3>
+<button class="btn btn-primary mb-3" @onclick="LoadLockedOutUsers">
+    잠금된 사용자 조회
+</button>
 
 @if (LockedUsers is null)
 {
-    <p>아직 데이터를 불러오지 않았습니다.</p>
+    <p>아직 잠금된 사용자를 불러오지 않았습니다.</p>
 }
 else if (LockedUsers.Count == 0)
 {
@@ -23,7 +29,7 @@ else
                 <th>Name</th>
                 <th>SamAccountName</th>
                 <th>LockoutTime</th>
-                <th>Action</th>
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -44,26 +50,97 @@ else
     </table>
 }
 
+<hr />
+
+<!-- [2] "모든 사용자" 섹션 -->
+<h3>모든 사용자 조회/잠금</h3>
+<button class="btn btn-secondary mb-3" @onclick="LoadAllUsers">
+    모든 사용자 조회
+</button>
+
+@if (AllUsers is null)
+{
+    <p>아직 모든 사용자 목록을 불러오지 않았습니다.</p>
+}
+else if (AllUsers.Count == 0)
+{
+    <p>사용자가 없습니다.</p>
+}
+else
+{
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>SamAccountName</th>
+                <th>LockoutTime</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var user in AllUsers)
+            {
+                <tr>
+                    <td>@user.Name</td>
+                    <td>@user.SamAccountName</td>
+                    <td>@user.LockoutTime?.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td>
+@*                         <button class="btn btn-danger" @onclick="@(() => LockUser(user.SamAccountName))">
+                            잠금
+                        </button> *@
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
 @code {
+    // 잠금된 사용자 목록
     private List<AdUser>? LockedUsers;
 
+    // 모든 사용자 목록
+    private List<AdUser>? AllUsers;
+
+    // [1] 잠금된 사용자 조회
     private async Task LoadLockedOutUsers()
     {
-        // SearchRequest/Response는 동기 방식이므로, Task.Run 사용 가능
         LockedUsers = await Task.Run(() => AdService.GetLockedOutUsers());
     }
 
+    // 잠금 해제
     private async Task UnlockUser(string samAccountName)
     {
         var result = await Task.Run(() => AdService.UnlockUser(samAccountName));
         if (result)
         {
-            // 성공 시 목록 갱신
+            // 성공 시 잠금 목록 다시 로드
             await LoadLockedOutUsers();
         }
         else
         {
             Console.WriteLine("잠금 해제 실패");
+        }
+    }
+
+    // [2] 모든 사용자 조회
+    private async Task LoadAllUsers()
+    {
+        AllUsers = await Task.Run(() => AdService.GetAllUsers());
+    }
+
+    // 모든 사용자 중 특정 계정 잠금
+    private async Task LockUser(string samAccountName)
+    {
+        var result = await Task.Run(() => AdService.LockUser(samAccountName));
+        if (result)
+        {
+            // 잠금 성공 후 목록 재로딩
+            await LoadAllUsers();
+        }
+        else
+        {
+            Console.WriteLine("강제 잠금 실패");
         }
     }
 }
