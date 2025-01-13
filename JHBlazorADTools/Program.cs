@@ -1,30 +1,37 @@
-using JHBlazorADTools.Data;
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Web;
+using JHBlazorADTools.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// 1) AD 설정 정보 (예시)
+var adConfig = new AdConfig
+{
+    // 가능한 LDAPS: "mydomain.com:636"
+    LdapServer = "jhsoft.org",
+    LdapBaseDn = "OU=Users,DC=mydomain,DC=com",
+    LdapUsername = "Administrator",
+    LdapPassword = "P@ssw0rd123"
+};
+
+// 2) DI 등록
+builder.Services.AddSingleton(adConfig);
+builder.Services.AddScoped<AdService>();
+
+// Blazor Server 기본 설정
 builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
-builder.Services.AddSingleton<WeatherForecastService>();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// 기본 Blazor 파이프라인
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
 
 app.UseHttpsRedirection();
-
 app.UseStaticFiles();
-
 app.UseRouting();
-
 app.MapBlazorHub();
 app.MapFallbackToPage("/_Host");
 
